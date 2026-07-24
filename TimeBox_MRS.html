@@ -166,9 +166,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Arial,sans-se
   </div>
   <div class="hdr-r">
     <span class="hdr-date" id="today-lbl"></span>
-    <span id="save-ind" style="font-size:11px;color:#8BC88B;"></span>
-    <button class="hbtn" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.25);" onclick="loadFromFile()">📂 Cargar datos</button>
-    <button class="hbtn" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.25);" onclick="newDataFile()">💾 Nuevo archivo</button>
+    <span id="save-ind" style="font-size:11px;color:#8BC88B;margin-right:4px;"></span>
     <button class="hbtn hbtn-xl" onclick="exportExcel()">📊 Excel</button>
     <button class="hbtn hbtn-cl" onclick="closeDayPrompt()">Cerrar día →</button>
   </div>
@@ -279,74 +277,72 @@ function tk(){return new Date().toISOString().split('T')[0];}
 function fd(k){const[y,m,d]=k.split('-');return`${d}/${m}`;}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
-// FILE-BASED STORAGE
-let fileHandle=null;
+// GITHUB STORAGE
+const GH_TOKEN='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';
+const GH_REPO='mrsartist/Timebox';
+const GH_FILE='datos_mrs.json';
+let ghSha=null;
 let saveTimeout=null;
 
 function load(){
-  try{const r=localStorage.getItem('timebox_mrs_backup');return r?JSON.parse(r):{days:{},projects:[]};}
-  catch{return{days:{},projects:{}};}
+  try{const r=localStorage.getItem('timebox_mrs_cache');return r?JSON.parse(r):{days:{},projects:[]};}
+  catch{return{days:{},projects:[]};}
 }
 
 function save(){
-  // Always save to localStorage as backup
-  try{localStorage.setItem('timebox_mrs_backup',JSON.stringify(st));}catch(e){}
-  // Debounce file save
+  try{localStorage.setItem('timebox_mrs_cache',JSON.stringify(st));}catch(e){}
   clearTimeout(saveTimeout);
-  saveTimeout=setTimeout(saveToFile,1500);
+  saveTimeout=setTimeout(saveToGH,2000);
 }
 
-async function saveToFile(){
-  if(!fileHandle)return;
+async function saveToGH(){
   try{
-    const w=await fileHandle.createWritable();
-    await w.write(JSON.stringify(st,null,2));
-    await w.close();
     const ind=document.getElementById('save-ind');
+    if(ind){ind.textContent='💾 Guardando...';ind.style.color='#F0C040';}
+    const body={message:'TimeBox update',content:btoa(unescape(encodeURIComponent(JSON.stringify(st))))};
+    if(ghSha)body.sha=ghSha;
+    const r=await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_FILE,{
+      method:'PUT',
+      headers:{'Authorization':'token '+GH_TOKEN,'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+    const d=await r.json();
+    if(d.content)ghSha=d.content.sha;
     if(ind){ind.textContent='✅ Guardado';ind.style.color='#8BC88B';setTimeout(()=>{ind.textContent='';},2000);}
-  }catch(e){console.warn('Save error',e);}
+  }catch(e){
+    const ind=document.getElementById('save-ind');
+    if(ind){ind.textContent='⚠️ Error al guardar';ind.style.color='#E08080';setTimeout(()=>{ind.textContent='';},3000);}
+    console.warn('GH save error',e);
+  }
 }
 
-async function loadFromFile(){
+async function loadFromGH(){
   try{
-    const [fh]=await window.showOpenFilePicker({
-      types:[{description:'TimeBox Data',accept:{'application/json':['.json']}}],
-      suggestedName:'TimeBox_MRS_datos.json'
+    const ind=document.getElementById('save-ind');
+    if(ind){ind.textContent='📂 Cargando...';ind.style.color='#F0C040';}
+    const r=await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_FILE,{
+      headers:{'Authorization':'token '+GH_TOKEN}
     });
-    fileHandle=fh;
-    const file=await fh.getFile();
-    const text=await file.text();
+    if(r.status===404){
+      if(ind){ind.textContent='';} 
+      return;
+    }
+    const d=await r.json();
+    ghSha=d.sha;
+    const text=decodeURIComponent(escape(atob(d.content.replace(/\n/g,''))));
     const data=JSON.parse(text);
     st=data;
     if(!st.projects)st.projects=[];
-    // Save to localStorage backup too
-    try{localStorage.setItem('timebox_mrs_backup',JSON.stringify(st));}catch(e){}
-    const ind=document.getElementById('save-ind');
-    if(ind){ind.textContent='📂 Datos cargados';ind.style.color='#8BC88B';setTimeout(()=>{ind.textContent='';},2000);}
-    // Re-render
+    try{localStorage.setItem('timebox_mrs_cache',JSON.stringify(st));}catch(e){}
+    if(ind){ind.textContent='✅ Datos cargados';ind.style.color='#8BC88B';setTimeout(()=>{ind.textContent='';},2000);}
     const k=tk();
     tod=st.days[k]?st.days[k].prios||[]:[];
     trk=st.days[k]?st.days[k].track||[]:[];
     rFoco();rPrios();rBrain();rTrk();rCal();
   }catch(e){
-    if(e.name!=='AbortError')alert('Error al cargar el archivo: '+e.message);
-  }
-}
-
-async function newDataFile(){
-  try{
-    const fh=await window.showSaveFilePicker({
-      suggestedName:'TimeBox_MRS_datos.json',
-      types:[{description:'TimeBox Data',accept:{'application/json':['.json']}}]
-    });
-    fileHandle=fh;
-    const w=await fh.createWritable();
-    await w.write(JSON.stringify(st,null,2));
-    await w.close();
+    console.warn('GH load error',e);
     const ind=document.getElementById('save-ind');
-    if(ind){ind.textContent='✅ Archivo creado';ind.style.color='#8BC88B';setTimeout(()=>{ind.textContent='';},2000);}
-  }catch(e){
-    if(e.name!=='AbortError')alert('Error: '+e.message);
+    if(ind){ind.textContent='';} 
   }
 }
 
@@ -602,6 +598,8 @@ function init(){
   }
   tod=st.days[k].prios||[];trk=st.days[k].track||[];
   rFoco();rPrios();rBrain();rTrk();rCal();
+  // Load from GitHub after initial render
+  loadFromGH();
 }
 init();
 </script>
