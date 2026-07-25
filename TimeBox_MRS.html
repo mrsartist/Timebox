@@ -166,7 +166,9 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Arial,sans-se
   </div>
   <div class="hdr-r">
     <span class="hdr-date" id="today-lbl"></span>
-    <span id="save-ind" style="font-size:11px;color:#8BC88B;margin-right:4px;"></span>
+    <span id="save-ind" style="font-size:11px;color:#F0C040;margin-right:4px;"></span>
+    <button class="hbtn" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.25);" onclick="importJSON()">📂 Cargar datos</button>
+    <button class="hbtn" style="background:#C9A84C;color:#0F1F3D;font-weight:600;" onclick="exportJSON()">💾 Guardar datos</button>
     <button class="hbtn hbtn-xl" onclick="exportExcel()">📊 Excel</button>
     <button class="hbtn hbtn-cl" onclick="closeDayPrompt()">Cerrar día →</button>
   </div>
@@ -277,73 +279,53 @@ function tk(){return new Date().toISOString().split('T')[0];}
 function fd(k){const[y,m,d]=k.split('-');return`${d}/${m}`;}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
-// GITHUB STORAGE
-const GH_TOKEN='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';
-const GH_REPO='mrsartist/Timebox';
-const GH_FILE='datos_mrs.json';
-let ghSha=null;
+// ALMACENAMIENTO EN ARCHIVO JSON LOCAL
 let saveTimeout=null;
 
 function load(){
-  try{const r=localStorage.getItem('timebox_mrs_cache');return r?JSON.parse(r):{days:{},projects:[]};}
+  // Intenta cargar desde localStorage como caché temporal
+  try{const r=localStorage.getItem('timebox_cache');return r?JSON.parse(r):{days:{},projects:[]};}
   catch{return{days:{},projects:[]};}
 }
 
 function save(){
-  try{localStorage.setItem('timebox_mrs_cache',JSON.stringify(st));}catch(e){}
-  clearTimeout(saveTimeout);
-  saveTimeout=setTimeout(saveToGH,2000);
+  // Guarda en localStorage como caché
+  try{localStorage.setItem('timebox_cache',JSON.stringify(st));}catch(e){}
+  // Actualiza indicador
+  const ind=document.getElementById('save-ind');
+  if(ind){ind.textContent='● no guardado en archivo';ind.style.color='#F0C040';}
 }
 
-async function saveToGH(){
-  try{
-    const ind=document.getElementById('save-ind');
-    if(ind){ind.textContent='💾 Guardando...';ind.style.color='#F0C040';}
-    const body={message:'TimeBox update',content:btoa(unescape(encodeURIComponent(JSON.stringify(st))))};
-    if(ghSha)body.sha=ghSha;
-    const r=await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_FILE,{
-      method:'PUT',
-      headers:{'Authorization':'token '+GH_TOKEN,'Content-Type':'application/json'},
-      body:JSON.stringify(body)
-    });
-    const d=await r.json();
-    if(d.content)ghSha=d.content.sha;
-    if(ind){ind.textContent='✅ Guardado';ind.style.color='#8BC88B';setTimeout(()=>{ind.textContent='';},2000);}
-  }catch(e){
-    const ind=document.getElementById('save-ind');
-    if(ind){ind.textContent='⚠️ Error al guardar';ind.style.color='#E08080';setTimeout(()=>{ind.textContent='';},3000);}
-    console.warn('GH save error',e);
-  }
+function exportJSON(){
+  const blob=new Blob([JSON.stringify(st,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='TimeBox_MRS_datos.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  const ind=document.getElementById('save-ind');
+  if(ind){ind.textContent='✅ Guardado en archivo';ind.style.color='#8BC88B';setTimeout(()=>{ind.textContent='';},3000);}
 }
 
-async function loadFromGH(){
-  try{
-    const ind=document.getElementById('save-ind');
-    if(ind){ind.textContent='📂 Cargando...';ind.style.color='#F0C040';}
-    const r=await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_FILE,{
-      headers:{'Authorization':'token '+GH_TOKEN}
-    });
-    if(r.status===404){
-      if(ind){ind.textContent='';} 
-      return;
-    }
-    const d=await r.json();
-    ghSha=d.sha;
-    const text=decodeURIComponent(escape(atob(d.content.replace(/\n/g,''))));
-    const data=JSON.parse(text);
-    st=data;
-    if(!st.projects)st.projects=[];
-    try{localStorage.setItem('timebox_mrs_cache',JSON.stringify(st));}catch(e){}
-    if(ind){ind.textContent='✅ Datos cargados';ind.style.color='#8BC88B';setTimeout(()=>{ind.textContent='';},2000);}
-    const k=tk();
-    tod=st.days[k]?st.days[k].prios||[]:[];
-    trk=st.days[k]?st.days[k].track||[]:[];
-    rFoco();rPrios();rBrain();rTrk();rCal();
-  }catch(e){
-    console.warn('GH load error',e);
-    const ind=document.getElementById('save-ind');
-    if(ind){ind.textContent='';} 
-  }
+function importJSON(){
+  const input=document.createElement('input');
+  input.type='file';input.accept='.json';
+  input.onchange=async(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    const text=await file.text();
+    try{
+      const data=JSON.parse(text);
+      st=data;if(!st.projects)st.projects=[];
+      try{localStorage.setItem('timebox_cache',JSON.stringify(st));}catch(e){}
+      const k=tk();
+      tod=st.days[k]?st.days[k].prios||[]:[];
+      trk=st.days[k]?st.days[k].track||[]:[];
+      rFoco();rPrios();rBrain();rTrk();rCal();
+      const ind=document.getElementById('save-ind');
+      if(ind){ind.textContent='✅ Datos cargados';ind.style.color='#8BC88B';setTimeout(()=>{ind.textContent='';},3000);}
+    }catch(e){alert('Error al leer el archivo. Asegúrate que sea el archivo correcto.');}
+  };
+  input.click();
 }
 
 let st=load();
@@ -598,8 +580,6 @@ function init(){
   }
   tod=st.days[k].prios||[];trk=st.days[k].track||[];
   rFoco();rPrios();rBrain();rTrk();rCal();
-  // Load from GitHub after initial render
-  loadFromGH();
 }
 init();
 </script>
